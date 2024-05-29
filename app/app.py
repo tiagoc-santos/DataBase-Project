@@ -79,7 +79,7 @@ def get_specialty(clinica):
         return jsonify({"message": "Clinica não encontrada", "status": "error"}), 404
     return jsonify(specialty)
 
-@app.route("/c/<clinica>/<especialidade>", methods=("GET",))
+@app.route("/c/<clinica>/<especialidade>/", methods=("GET",))
 def get_availability(clinica, especialidade):
     """ Lists 3 available times for an apointment for each doctor"""
     with pool.connection() as conn:
@@ -108,7 +108,7 @@ def get_availability(clinica, especialidade):
                         SELECT 1
                         FROM trabalha t
                         WHERE t.nif = m.nif
-                        AND t.dia_da_semana = EXTRACT(DOW FROM ha.horario)
+                        AND EXTRACT(DOW FROM ha.horario) = t.dia_da_semana AND t.nome = %(clinica)s
                     )
                     ORDER BY horario
                     LIMIT 3
@@ -172,13 +172,18 @@ def check_args(paciente, doutor, data, hora):
 @app.route("/a/<clinica>/registar/", methods=("POST",))
 def register_apointment(clinica):
     """ Registers an apointment in a clinic"""
+    paciente, doutor, data, hora = None
+    paciente = request.args.get("paciente")
+    medico = request.args.get("medico")
+    data = request.args.get("data")
+    hora = request.args.get("hora")
 
-    paciente = request.args.get("Paciente SSN")
-    doutor = request.args.get("Médico NIF")
-    data = request.args.get("Data")
-    hora = request.args.get("Hora")
-
-    argcheck = check_args(paciente, doutor, data, hora)
+    error = None
+    if paciente or medico or data or hora is None:
+        error =  "Please enter all required fields"
+        return error, 400
+    
+    argcheck = check_args(paciente, medico, data, hora)
 
     if argcheck == 0:
         return jsonify({"message": "Please enter a valid SSN", "status": "error"})
