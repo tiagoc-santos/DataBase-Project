@@ -1,3 +1,4 @@
+DROP TABLE IF EXISTS horario_aux;
 CREATE TABLE horario_aux(
 	horario TIMESTAMP PRIMARY KEY
 );
@@ -10,7 +11,7 @@ FROM (
         '2024-12-31 13:00:00'::timestamp,
         '30 minutes'::interval
     ) AS horario
-    UNION ALL
+    UNION
     SELECT generate_series(
         '2024-01-01 14:00:00'::timestamp,
         '2024-12-31 19:00:00'::timestamp,

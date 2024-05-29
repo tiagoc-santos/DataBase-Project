@@ -79,7 +79,7 @@ def get_specialty(clinica):
         return jsonify({"message": "Clinica não encontrada", "status": "error"}), 404
     return jsonify(specialty)
 
-@app.route("/c/<clinica>/<especialidade>", methods=("GET",))
+@app.route("/c/<clinica>/<especialidade>/", methods=("GET",))
 def get_availability(clinica, especialidade):
     """ Lists 3 available times for an apointment for each doctor"""
     with pool.connection() as conn:
@@ -124,7 +124,7 @@ def get_availability(clinica, especialidade):
 
 
 
-@app.route("/a/<clinica>/registar", methods=("POST",))
+@app.route("/a/<clinica>/registar/", methods=("POST",))
 def register_apointment(clinica):
     """ Registers an apointment in a clinic"""
 
