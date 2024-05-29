@@ -3,7 +3,7 @@ CREATE TABLE horario_aux(
 	horario TIMESTAMP PRIMARY KEY
 );
 
-INSERT INTO horarios_aux (horario)
+INSERT INTO horario_aux (horario)
 SELECT horario
 FROM (
     SELECT generate_series(

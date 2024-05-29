@@ -79,7 +79,7 @@ def get_specialty(clinica):
         return jsonify({"message": "Clinica não encontrada", "status": "error"}), 404
     return jsonify(specialty)
 
-@app.route("/c/<clinica>/<especialidade>/", methods=("GET",))
+@app.route("/c/<clinica>/<especialidade>", methods=("GET",))
 def get_availability(clinica, especialidade):
     """ Lists 3 available times for an apointment for each doctor"""
     with pool.connection() as conn:
@@ -122,39 +122,111 @@ def get_availability(clinica, especialidade):
     return jsonify(availability)
 
 
-
+def check_args(paciente, doutor, data, hora):
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            pacienteExist = cur.execute(
+                """
+                SELECT *
+                FROM paciente p
+                WHERE p.ssn = %(paciente)s
+                """,
+                {"paciente": paciente},
+            ).fetchall()
+            doutorExist = cur.execute(
+                """
+                SELECT *
+                FROM medico m
+                WHERE m.nif = %(doutor)s
+                """,
+                {"doutor": doutor},
+            ).fetchall()
+            consulta = cur.execute(
+                """
+                SELECT *
+                FROM consulta c
+                WHERE c.nif = %(doutor)s
+                AND %(data)s::date + %(hora)s::time = c.data + c.hora
+                )
+                """,
+                {"doutor": doutor, "data": data, "hora": hora},
+            ).fetchall()
+            passado = cur.execute(
+                """
+                SELECT '%(data)s::date + %(hora)s::time < NOW();
+                """,
+                {"data": data, "hora": hora},
+            ).fetchone()
+    if pacienteExist is None:
+        return 0
+    if doutorExist is None:
+        return 1
+    if passado == 'true':
+        return 3
+    if consulta is not None:
+        return 2
+    if consulta is None:
+        return 4
+            
 
 @app.route("/a/<clinica>/registar/", methods=("POST",))
 def register_apointment(clinica):
     """ Registers an apointment in a clinic"""
 
     paciente = request.args.get("Paciente SSN")
-    log.debug(paciente)
     doutor = request.args.get("Médico NIF")
-    log.debug(doutor)
     data = request.args.get("Data")
-    log.debug(data)
     hora = request.args.get("Hora")
-    log.debug(hora)
 
-    #check_args(paciente, doutor, data, hora)
+    argcheck = check_args(paciente, doutor, data, hora)
+
+    if argcheck == 0:
+        return jsonify({"message": "Please enter a valid SSN", "status": "error"})
+    elif argcheck == 1:
+        return jsonify({"message": "Please enter a valid doctor NIF", "status": "error"})
+    elif argcheck == 2 or argcheck == 3:
+        return jsonify({"message": "That time slot is not available", "status": "error"})
 
     with pool.connection() as conn:
         with conn.cursor() as cur:
-            apointment = cur.execute(
+            cur.execute(
                 """
                 INSERT INTO consulta (ssn, nif, nome, data, hora)
                 VALUES (%(paciente)s,%(doutor)s,%(clinica)s,%(data)s,%(hora)s);
                 """,
                 {"paciente": paciente, "doutor": doutor, "clinica": clinica, "data":data, "hora":hora},
-            ).fetchall()
+            )
     
-    return jsonify(apointment)
+    return jsonify({"message": "Apointment reserved succesfully"})
 
-if __name__ == "__main__":
-    app.run()
+@app.route("/a/<clinica>/cancelar/", methods=("POST",))
+def cancel_apointment(clinica):
+    """ Cancels an apointment in a clinic"""
 
+    paciente = request.args.get("Paciente SSN")
+    doutor = request.args.get("Médico NIF")
+    data = request.args.get("Data")
+    hora = request.args.get("Hora")
 
+    argcheck = check_args(paciente, doutor, data, hora)
 
+    if argcheck == 0:
+        return jsonify({"message": "Please enter a valid SSN", "status": "error"})
+    elif argcheck == 1:
+        return jsonify({"message": "Please enter a valid doctor NIF", "status": "error"})
+    elif argcheck == 3:
+        return jsonify({"message": "Enter a valid date", "status": "error"})
+    elif argcheck == 4:
+        return jsonify({"message": "No apointment reserved on that date", "status": "error"})
 
-
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                DELETE FROM consulta
+                WHERE %(paciente)s = c.ssn, %(doutor)s = c.nif, %(clinica)s = c.nome, %(data)s = c.data, %(hora)s = c.hora;
+                """,
+                {"paciente": paciente, "doutor": doutor, "clinica": clinica, "data":data, "hora":hora},
+            )
+    
+    return jsonify({"message": "Apointment canceled succesfully"})
