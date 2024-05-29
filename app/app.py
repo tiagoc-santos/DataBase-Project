@@ -75,8 +75,8 @@ def get_specialty(clinica):
                 {"clinica": clinica},
             ).fetchall()
     
-    if specialty is []:
-        return jsonify({"message": "Clinica não encontrada", "status": "error"}), 404
+    if specialty == []:
+        return "Clinica não encontrada" , 404
     return jsonify(specialty)
 
 @app.route("/c/<clinica>/<especialidade>/", methods=("GET",))
@@ -117,121 +117,184 @@ def get_availability(clinica, especialidade):
                 {"especialidade": especialidade, "clinica": clinica},
             ).fetchall()
     
-    #if specialty is []:
-    #    return jsonify({"message": "Clinica não encontrada", "status": "error"}), 404
+    if availability == []:
+        return "Clinica ou Especialidade não encontrada", 404
     return jsonify(availability)
 
 
-def check_args(paciente, doutor, data, hora):
+def check_args(clinica, paciente, doutor, data, hora):
     with pool.connection() as conn:
         with conn.cursor() as cur:
-            pacienteExist = cur.execute(
-                """
-                SELECT *
-                FROM paciente p
-                WHERE p.ssn = %(paciente)s
-                """,
-                {"paciente": paciente},
-            ).fetchall()
-            doutorExist = cur.execute(
-                """
-                SELECT *
-                FROM medico m
-                WHERE m.nif = %(doutor)s
-                """,
-                {"doutor": doutor},
-            ).fetchall()
-            consulta = cur.execute(
-                """
-                SELECT *
-                FROM consulta c
-                WHERE c.nif = %(doutor)s
-                AND %(data)s::date + %(hora)s::time = c.data + c.hora
-                )
-                """,
-                {"doutor": doutor, "data": data, "hora": hora},
-            ).fetchall()
-            passado = cur.execute(
-                """
-                SELECT '%(data)s::date + %(hora)s::time < NOW();
-                """,
-                {"data": data, "hora": hora},
-            ).fetchone()
-    if pacienteExist is None:
+            with conn.transaction():
+                pacienteExist = cur.execute(
+                    """
+                    SELECT *
+                    FROM paciente p
+                    WHERE p.ssn = %(paciente)s;
+                    """,
+                    {"paciente": paciente},
+                ).fetchall()
+                doutorExist = cur.execute(
+                    """
+                    SELECT *
+                    FROM medico m
+                    WHERE m.nif = %(doutor)s;
+                    """,
+                    {"doutor": doutor},
+                ).fetchall()
+                doctorworks = cur.execute(
+                    """
+                    SELECT * FROM trabalha t
+                    WHERE t.nif = %(doutor)s
+                    AND t.nome = %(clinica)s AND EXTRACT(DOW FROM %(data)s::date) = t.dia_da_semana;
+                    """,
+                    {"doutor": doutor, "clinica": clinica, "data": data},
+                ).fetchall()
+                consulta = cur.execute(
+                    """
+                    SELECT *
+                    FROM consulta c
+                    WHERE c.nif = %(doutor)s
+                    AND %(data)s::date + %(hora)s::time = c.data + c.hora;
+                    """,
+                    {"doutor": doutor, "data": data, "hora": hora},
+                ).fetchall()
+                passado = cur.execute(
+                    """
+                    SELECT
+                    CASE 
+                        WHEN (%(data)s::date + %(hora)s::time) < NOW() THEN 'TRUE'
+                        ELSE 'FALSE'
+                    END AS result;
+                    """,
+                    {"data": data, "hora": hora},
+                ).fetchone()
+    if pacienteExist == []:
         return 0
-    if doutorExist is None:
+    if doutorExist == []:
         return 1
-    if passado == 'true':
-        return 3
-    if consulta is not None:
+    if consulta != []:
         return 2
-    if consulta is None:
+    if passado[0] == 'TRUE':
+       return 3
+    if doctorworks == []:
         return 4
-            
+    if consulta == []:
+        return 5
+    
+def get_new_id():
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            id_consulta = cur.execute(
+                """
+                SELECT MAX(id) + 1
+                FROM consulta;
+                """
+            ).fetchone()
+    id_consulta = id_consulta[0]
+    return id_consulta
+
+def check_if_number(number):
+    try:
+        int(number)
+        return True
+    except:
+        return False
+
+def check_valid_date(data, hora):
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            datas = cur.execute(
+                """
+                SELECT * 
+                FROM horario_aux
+                WHERE horario = %(data)s::date + %(hora)s::time;
+                """,
+            {"data": data, "hora": hora}
+            ).fetchall()
+    if datas == []:
+        return False
+    else:
+        return True
+
 
 @app.route("/a/<clinica>/registar/", methods=("POST",))
 def register_apointment(clinica):
     """ Registers an apointment in a clinic"""
-    paciente, doutor, data, hora = None
+
     paciente = request.args.get("paciente")
-    medico = request.args.get("medico")
+    doutor = request.args.get("medico")
     data = request.args.get("data")
     hora = request.args.get("hora")
-
-    error = None
-    if paciente or medico or data or hora is None:
-        error =  "Please enter all required fields"
-        return error, 400
     
-    argcheck = check_args(paciente, medico, data, hora)
+    if not check_if_number(paciente) or not check_if_number(doutor):
+        return "NIF/SSN must be numbers.", 400
+
+    if not check_valid_date(data, hora):
+        return "Enter a valid date/hour", 400
+        
+    argcheck = check_args(clinica, paciente, doutor, data, hora)
 
     if argcheck == 0:
-        return jsonify({"message": "Please enter a valid SSN", "status": "error"})
+        return "Please enter a valid SSN", 400
     elif argcheck == 1:
-        return jsonify({"message": "Please enter a valid doctor NIF", "status": "error"})
-    elif argcheck == 2 or argcheck == 3:
-        return jsonify({"message": "That time slot is not available", "status": "error"})
+        return "Please enter a valid doctor NIF", 400
+    elif argcheck == 2:
+        return "That time slot is not available", 400
+    elif argcheck == 3:
+        return "Enter a valid date", 400
+    elif argcheck == 4:
+        return "Doctor does not work at that clinic", 400
 
+    id_consulta = get_new_id()
     with pool.connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO consulta (ssn, nif, nome, data, hora)
-                VALUES (%(paciente)s,%(doutor)s,%(clinica)s,%(data)s,%(hora)s);
+                INSERT INTO consulta (id, ssn, nif, nome, data, hora)
+                VALUES (%(id)s, %(paciente)s,%(doutor)s,%(clinica)s,%(data)s,%(hora)s);
                 """,
-                {"paciente": paciente, "doutor": doutor, "clinica": clinica, "data":data, "hora":hora},
+                {"id": id_consulta,"paciente": paciente, "doutor": doutor, "clinica": clinica, "data":data, "hora":hora},
             )
+        conn.commit()
     
-    return jsonify({"message": "Apointment reserved succesfully"})
+    return "Apointment reserved succesfully", 200
 
 @app.route("/a/<clinica>/cancelar/", methods=("POST",))
 def cancel_apointment(clinica):
     """ Cancels an apointment in a clinic"""
 
-    paciente = request.args.get("Paciente SSN")
-    doutor = request.args.get("Médico NIF")
-    data = request.args.get("Data")
-    hora = request.args.get("Hora")
+    paciente = request.args.get("paciente")
+    doutor = request.args.get("medico")
+    data = request.args.get("data")
+    hora = request.args.get("hora")
+    
+    if not check_if_number(paciente) or not check_if_number(doutor):
+        return "NIF/SSN must be numbers.", 400
 
-    argcheck = check_args(paciente, doutor, data, hora)
+    if not check_valid_date(data, hora):
+        return "Enter a valid date/hour", 400
+
+    argcheck = check_args(clinica, paciente, doutor, data, hora)
 
     if argcheck == 0:
-        return jsonify({"message": "Please enter a valid SSN", "status": "error"})
+        return "Please enter a valid SSN", 400
     elif argcheck == 1:
-        return jsonify({"message": "Please enter a valid doctor NIF", "status": "error"})
+        return "Please enter a valid doctor NIF", 400
     elif argcheck == 3:
-        return jsonify({"message": "Enter a valid date", "status": "error"})
-    elif argcheck == 4:
-        return jsonify({"message": "No apointment reserved on that date", "status": "error"})
+        return "Enter a valid date", 400
+    elif argcheck == 5:
+        return "No apointment reserved on that date", 400
 
     with pool.connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
                 DELETE FROM consulta
-                WHERE %(paciente)s = c.ssn, %(doutor)s = c.nif, %(clinica)s = c.nome, %(data)s = c.data, %(hora)s = c.hora;
+                WHERE %(paciente)s = ssn AND %(doutor)s = nif AND %(clinica)s = nome
+                AND %(data)s = data AND %(hora)s = hora;
                 """,
                 {"paciente": paciente, "doutor": doutor, "clinica": clinica, "data":data, "hora":hora},
             )
-    
-    return jsonify({"message": "Apointment canceled succesfully"})
+        conn.commit()
+    return "Apointment canceled succesfully", 200
