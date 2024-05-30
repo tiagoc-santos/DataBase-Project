@@ -353,4 +353,4 @@ def cancel_appointment(clinica):
                 {"paciente": paciente, "medico": medico, "clinica": clinica, "data":data, "hora":hora},
             )
         conn.commit()
-    return jsonify({"message": "Consulta registada com sucesso"}), 200
+    return jsonify({"message": "Consulta cancelada com sucesso"}), 200
